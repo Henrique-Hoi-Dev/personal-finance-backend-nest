@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  FIXED
+  LOAN
+  CREDIT_CARD
+  DEBIT_CARD
+  SUBSCRIPTION
+  INSURANCE
+  TAX
+  PENSION
+  EDUCATION
+  HEALTH
+  OTHER
+}
+
+model Account {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  name          String      @db.VarChar(100)
+  type          AccountType
+  isPaid        Boolean     @default(false) @map("is_paid")
+  totalAmount   Decimal?    @map("total_amount") @db.Decimal(10, 2)
+  installments  Int?
+  startDate     DateTime    @map("start_date") @db.Date
+  dueDay        Int         @map("due_day")
+  isPreview     Boolean     @default(false) @map("is_preview")
+  referenceMonth Int?       @map("reference_month")
+  referenceYear Int?        @map("reference_year")
+  creditLimit   Decimal?    @map("credit_limit") @db.Decimal(10, 2)
+  creditCardId  String?     @map("credit_card_id") @db.Uuid
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  installmentList Installment[]
+
+  @@map("accounts")
+}
+
+model Installment {
+  id            String      @id @default(uuid()) @db.Uuid
+  accountId     String      @map("account_id") @db.Uuid
+  number        Int
+  dueDate       DateTime    @map("due_date") @db.Date
+  amount        BigInt      @db.BigInt
+  isPaid        Boolean     @default(false) @map("is_paid")
+  paidAt        DateTime?   @map("paid_at")
+  referenceMonth Int?       @map("reference_month")
+  referenceYear Int?        @map("reference_year")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  account       Account     @relation(fields: [accountId], references: [id])
+
+  @@map("installments")
+  @@index([accountId])
+  @@index([dueDate])
+  @@index([isPaid])
+  @@index([number])
+  @@unique([accountId, number])
+  @@index([referenceYear, referenceMonth])
+  @@index([accountId, referenceYear, referenceMonth])
+}
+
