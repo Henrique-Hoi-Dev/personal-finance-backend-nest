@@ -21,9 +21,52 @@ enum AccountType {
   OTHER
 }
 
+enum MonthlySummaryStatus {
+  EXCELLENT
+  GOOD
+  WARNING
+  CRITICAL
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum CurrencyCode {
+  BRL
+  USD
+  EUR
+  GBP
+  CAD
+  AUD
+  JPY
+  CHF
+  CNY
+  ARS
+  CLP
+  COP
+  MXN
+  PEN
+}
+
+enum LanguageCode {
+  pt_BR @map("pt-BR")
+  en_US @map("en-US")
+  es_ES @map("es-ES")
+  fr_FR @map("fr-FR")
+  de_DE @map("de-DE")
+  it_IT @map("it-IT")
+  ja_JP @map("ja-JP")
+  ko_KR @map("ko-KR")
+  zh_CN @map("zh-CN")
+  ru_RU @map("ru-RU")
+}
+
 model Account {
   id            String      @id @default(uuid()) @db.Uuid
   userId        String      @map("user_id") @db.Uuid
+  user          User        @relation(fields: [userId], references: [id])
   name          String      @db.VarChar(100)
   type          AccountType
   isPaid        Boolean     @default(false) @map("is_paid")
@@ -39,6 +82,7 @@ model Account {
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
   installmentList Installment[]
+  transactions    Transaction[]
 
   @@map("accounts")
 }
@@ -57,6 +101,7 @@ model Installment {
   updatedAt     DateTime    @updatedAt @map("updated_at")
 
   account       Account     @relation(fields: [accountId], references: [id])
+  transactions  Transaction[]
 
   @@map("installments")
   @@index([accountId])
@@ -66,5 +111,109 @@ model Installment {
   @@unique([accountId, number])
   @@index([referenceYear, referenceMonth])
   @@index([accountId, referenceYear, referenceMonth])
+}
+
+model MonthlySummary {
+  id               String               @id @default(uuid()) @db.Uuid
+  userId           String               @map("user_id") @db.Uuid
+  user             User                 @relation(fields: [userId], references: [id])
+
+  referenceMonth   Int                  @map("reference_month")
+  referenceYear    Int                  @map("reference_year")
+
+  totalIncome      BigInt               @default(0) @map("total_income")   @db.BigInt
+  totalExpenses    BigInt               @default(0) @map("total_expenses") @db.BigInt
+  totalBalance     BigInt               @default(0) @map("total_balance")  @db.BigInt
+  billsToPay       BigInt               @default(0) @map("bills_to_pay")   @db.BigInt
+  billsCount       Int                  @default(0) @map("bills_count")
+
+  status           MonthlySummaryStatus @default(GOOD)
+  lastCalculatedAt DateTime             @default(now()) @map("last_calculated_at")
+
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt      @map("updated_at")
+
+  @@map("monthly_summaries")
+  @@index([userId])
+  @@index([referenceYear, referenceMonth])
+  @@unique([userId, referenceYear, referenceMonth])
+  @@index([lastCalculatedAt])
+  @@index([status])
+}
+
+model Transaction {
+  id            String          @id @default(uuid()) @db.Uuid
+  userId        String          @map("user_id") @db.Uuid
+  user          User            @relation(fields: [userId], references: [id])
+  accountId     String?         @map("account_id") @db.Uuid
+  installmentId String?         @map("installment_id") @db.Uuid
+  type          TransactionType
+  category      String?         @db.VarChar(50)
+  description   String          @db.VarChar(255)
+  value         BigInt          @db.BigInt
+  date          DateTime        @db.Date
+
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  account       Account?        @relation(fields: [accountId], references: [id])
+  installment   Installment?    @relation(fields: [installmentId], references: [id])
+
+  @@map("transactions")
+  @@index([userId])
+  @@index([accountId])
+  @@index([installmentId])
+  @@index([type])
+  @@index([category])
+  @@index([date])
+  @@index([userId, date])
+}
+
+model User {
+  id                String        @id @default(uuid()) @db.Uuid
+  cpf               String        @unique @db.VarChar(11)
+  name              String        @db.VarChar(100)
+  email             String        @unique
+  hashPassword      String        @map("hash_password")
+  isActive          Boolean       @default(true) @map("is_active")
+  emailVerified     Boolean       @default(false) @map("email_verified")
+  lastLogin         DateTime?     @map("last_login")
+  lastLogout        DateTime?     @map("last_logout")
+  defaultCurrency   CurrencyCode  @default(BRL) @map("default_currency")
+  preferredLanguage LanguageCode  @default(pt_BR) @map("preferred_language")
+  pluggyItemId      String?       @map("pluggy_item_id")
+
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+
+  accounts          Account[]
+  transactions      Transaction[]
+  monthlySummaries  MonthlySummary[]
+  avatar            UserAvatar?
+
+  @@map("Users")
+  @@index([cpf])
+  @@index([email])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model UserAvatar {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  originalName String   @map("original_name")
+  fileName     String   @map("file_name")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  storagePath  String   @map("storage_path")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@map("user_avatars")
+  @@index([userId])
 }
 

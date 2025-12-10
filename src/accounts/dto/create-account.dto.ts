@@ -38,6 +38,11 @@ export class CreateAccountDto {
   totalAmount?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  installmentAmount?: number;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   installments?: number;

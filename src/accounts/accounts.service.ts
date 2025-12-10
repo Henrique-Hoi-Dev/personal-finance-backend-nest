@@ -8,7 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InstallmentsService } from '../installments/installments.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { MonthlySummaryService } from '../monthly-summary/monthly-summary.service';
-import { PluggyService } from '../pluggy/pluggy.service';
+import { PluggyIntegrationService } from '../integrations/pluggy/pluggy-integration.service';
+import { PluggyAccountResponse } from '../integrations/pluggy/pluggy.types';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { GetAccountsQueryDto } from './dto/get-accounts-query.dto';
@@ -35,7 +36,7 @@ export class AccountsService {
     private readonly installmentsService: InstallmentsService,
     private readonly transactionsService: TransactionsService,
     private readonly monthlySummaryService: MonthlySummaryService,
-    private readonly pluggyService: PluggyService,
+    private readonly pluggyIntegration: PluggyIntegrationService,
   ) {}
 
   // ========== Core CRUD ==========
@@ -51,22 +52,24 @@ export class AccountsService {
 
     // Calculate totalAmount for LOAN accounts
     let totalAmount = dto.totalAmount ?? null;
-    if (dto.type === AccountType.LOAN && dto.installments && dto.totalAmount) {
-      const loanCalc = this.calculateLoanAmounts(
-        dto.totalAmount,
-        dto.installments,
-      );
-      totalAmount = loanCalc.totalAmount;
-    } else if (
-      dto.type === AccountType.LOAN &&
-      dto.installments &&
-      !dto.totalAmount
-    ) {
-      // If installments and installmentAmount exist, calculate totalAmount
-      // TODO: Add installmentAmount to CreateAccountDto if needed
-      throw new BadRequestException(
-        'LOAN accounts require totalAmount or installmentAmount',
-      );
+    if (dto.type === AccountType.LOAN && dto.installments) {
+      if (dto.totalAmount) {
+        // If totalAmount is provided, calculate with interest
+        const loanCalc = this.calculateLoanAmounts(
+          dto.totalAmount,
+          dto.installments,
+        );
+        totalAmount = loanCalc.totalAmount;
+      } else if (dto.installmentAmount) {
+        // If installmentAmount is provided, calculate totalAmount
+        // Simple calculation: totalAmount = installmentAmount * installments
+        // This assumes the installmentAmount already includes principal + interest
+        totalAmount = dto.installmentAmount * dto.installments;
+      } else {
+        throw new BadRequestException(
+          'LOAN accounts require totalAmount or installmentAmount',
+        );
+      }
     }
 
     const payload: Prisma.AccountUncheckedCreateInput = {
@@ -281,7 +284,18 @@ export class AccountsService {
 
     // Load installments
     try {
-      result.installmentList = await this.installmentsService.findByAccount(id);
+      const installments =
+        await this.installmentsService.findByAccountSimple(id);
+      result.installmentList = installments.map((inst) => ({
+        id: inst.id,
+        accountId: inst.accountId,
+        installmentNumber: inst.number,
+        dueDate: inst.dueDate,
+        amount: Number(inst.amount), // Convert BigInt to number (cents)
+        isPaid: inst.isPaid,
+        paidAt: inst.paidAt,
+        breakdown: null,
+      }));
     } catch (error) {
       // Installments not available yet, leave empty
       console.error('Error loading installments:', error);
@@ -299,10 +313,7 @@ export class AccountsService {
     // For CREDIT_CARD accounts: add breakdown to installments
     if (account.type === AccountType.CREDIT_CARD && result.installmentList) {
       try {
-        await this.addBreakdownToInstallments(
-          account.id,
-          result.installmentList,
-        );
+        this.addBreakdownToInstallments(account.id, result.installmentList);
       } catch (error) {
         console.error('Error adding breakdown to installments:', error);
       }
@@ -555,12 +566,11 @@ export class AccountsService {
     // Create transaction
     let transaction: unknown;
     try {
-      transaction = await this.transactionsService.createAccountPayment({
+      transaction = await this.transactionsService.createAccountPayment(
         accountId,
         userId,
-        amount: paymentAmount,
-        description: `Payment for account: ${account.name}`,
-      });
+        paymentAmount,
+      );
     } catch (error) {
       console.error('Error creating transaction:', error);
       // Transaction creation failed, but account is marked as paid
@@ -586,7 +596,7 @@ export class AccountsService {
     creditCardIdOrUserId: string,
     dtoOrCreditCardId?: AssociateAccountToCreditCardDto | string,
     accountId?: string,
-  ): Promise<Account | unknown> {
+  ): Promise<Account> {
     // Legacy signature: associateAccountToCreditCard(creditCardId, dto)
     if (
       dtoOrCreditCardId &&
@@ -601,7 +611,7 @@ export class AccountsService {
     if (typeof dtoOrCreditCardId === 'string' && accountId) {
       const userId = creditCardIdOrUserId;
       const creditCardId = dtoOrCreditCardId;
-      const result = await this.associateAccountToCreditCardFull(
+      await this.associateAccountToCreditCardFull(
         userId,
         creditCardId,
         accountId,
@@ -655,10 +665,7 @@ export class AccountsService {
     creditCardId: string,
     accountId: string,
   ): Promise<Account> {
-    const result = await this.disassociateAccountFromCreditCardFull(
-      creditCardId,
-      accountId,
-    );
+    await this.disassociateAccountFromCreditCardFull(creditCardId, accountId);
     return this.findOne(accountId);
   }
 
@@ -733,7 +740,7 @@ export class AccountsService {
 
   async getPluggyAccounts(
     itemIdOrQuery: string | GetPluggyAccountsDto,
-  ): Promise<unknown> {
+  ): Promise<PluggyAccountResponse> {
     // Legacy signature: getPluggyAccounts(query)
     if (
       itemIdOrQuery &&
@@ -753,8 +760,10 @@ export class AccountsService {
     throw new BadRequestException('Invalid parameters');
   }
 
-  private async getPluggyAccountsFull(itemId: string): Promise<unknown> {
-    return this.pluggyService.getAccounts(itemId);
+  private async getPluggyAccountsFull(
+    itemId: string,
+  ): Promise<PluggyAccountResponse> {
+    return this.pluggyIntegration.getAccounts(itemId);
   }
 
   // ========== Private Helper Methods ==========
@@ -892,7 +901,7 @@ export class AccountsService {
 
     for (const account of accounts) {
       try {
-        const installments = await this.installmentsService.findByAccount(
+        const installments = await this.installmentsService.findByAccountSimple(
           account.id,
         );
         allInstallments.push(...installments);
@@ -915,12 +924,16 @@ export class AccountsService {
   async findAll(query: GetAccountsQueryDto): Promise<Account[]> {
     const where: Prisma.AccountWhereInput = {};
 
-    if (query.referenceMonth !== undefined) {
-      where.referenceMonth = query.referenceMonth;
+    // Support both referenceMonth/month and referenceYear/year
+    const month = query.referenceMonth ?? query.month;
+    const year = query.referenceYear ?? query.year;
+
+    if (month !== undefined) {
+      where.referenceMonth = month;
     }
 
-    if (query.referenceYear !== undefined) {
-      where.referenceYear = query.referenceYear;
+    if (year !== undefined) {
+      where.referenceYear = year;
     }
 
     if (query.isPaid !== undefined) {
@@ -967,9 +980,11 @@ export class AccountsService {
     return Promise.reject(new Error('Not implemented yet'));
   }
 
-  async getInstallments(accountId: string): Promise<unknown> {
+  async getInstallments(
+    accountId: string,
+  ): Promise<import('@prisma/client').Installment[]> {
     await this.findOne(accountId);
-    return this.installmentsService.findByAccount(accountId);
+    return this.installmentsService.findByAccountSimple(accountId);
   }
 
   async associateAccountToCreditCardLegacy(

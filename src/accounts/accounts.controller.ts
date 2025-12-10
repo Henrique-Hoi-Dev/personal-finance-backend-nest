@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { Account } from '@prisma/client';
 import { AccountsService } from './accounts.service';
@@ -21,6 +22,7 @@ import { UpdateTemporalReferenceDto } from './dto/update-temporal-reference.dto'
 import { AssociateAccountToCreditCardDto } from './dto/associate-account-to-credit-card.dto';
 import { GetCreditCardAssociatedAccountsDto } from './dto/get-credit-card-associated-accounts.dto';
 import { GetPluggyAccountsDto } from './dto/get-pluggy-accounts.dto';
+import { InstallmentDto } from '../installments/dto/installment.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 
@@ -70,10 +72,13 @@ export class AccountsController {
   }
 
   @Get(':id/installments')
-  getInstallments(
+  async getInstallments(
     @Param('id', ParseUUIDPipe) accountId: string,
-  ): Promise<unknown> {
-    return this.accountsService.getInstallments(accountId);
+  ): Promise<InstallmentDto[]> {
+    const installments = await this.accountsService.getInstallments(accountId);
+    return installments.map((installment) =>
+      InstallmentDto.fromPrisma(installment),
+    );
   }
 
   @Get('dashboard/all')
@@ -156,7 +161,7 @@ export class AccountsController {
   @Get('pluggy/accounts')
   getPluggyAccounts(@Query() query: GetPluggyAccountsDto) {
     if (!query.itemId) {
-      throw new Error('itemId is required');
+      throw new BadRequestException('itemId is required');
     }
     return this.accountsService.getPluggyAccounts(query.itemId);
   }
