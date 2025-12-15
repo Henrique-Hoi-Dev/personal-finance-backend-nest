@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  ICategoriesService,
-  Category,
-} from '../interfaces/categories.interface';
+import { ICategoriesService, Category } from '../types/categories.types';
 
 @Injectable()
 export class CategoriesService implements ICategoriesService {

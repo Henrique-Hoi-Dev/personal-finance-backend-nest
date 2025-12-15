@@ -18,3 +18,8 @@ export type PaginatedResult<T> = {
   hasNextPage: boolean;
   hasPrevPage: boolean;
 };
+
+/**
+ * Pagination result (alias for PaginatedResult for consistency)
+ */
+export type PaginationResult<T> = PaginatedResult<T>;

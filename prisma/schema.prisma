@@ -33,6 +33,11 @@ enum TransactionType {
   EXPENSE
 }
 
+enum TransactionCategoryType {
+  EXPENSE
+  INCOME
+}
+
 enum CurrencyCode {
   BRL
   USD
@@ -83,6 +88,8 @@ model Account {
   updatedAt     DateTime    @updatedAt @map("updated_at")
   installmentList Installment[]
   transactions    Transaction[]
+  creditCardItems CreditCardItem[] @relation("CreditCard")
+  linkedAccounts  CreditCardItem[] @relation("LinkedAccount")
 
   @@map("accounts")
 }
@@ -215,5 +222,38 @@ model UserAvatar {
 
   @@map("user_avatars")
   @@index([userId])
+}
+
+model TransactionCategory {
+  id          String                 @id @default(uuid()) @db.Uuid
+  name        String                 @db.VarChar(50)
+  description String?                @db.VarChar(255)
+  type        TransactionCategoryType
+  isDefault   Boolean                @default(false) @map("is_default")
+  ptBr        String                 @map("pt_br") @db.VarChar(100)
+  en          String                 @db.VarChar(100)
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  @@map("transaction_categories")
+  @@unique([name, type])
+  @@index([type])
+  @@index([isDefault])
+}
+
+model CreditCardItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  creditCardId  String   @map("credit_card_id") @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  creditCard    Account  @relation("CreditCard", fields: [creditCardId], references: [id])
+  linkedAccount Account  @relation("LinkedAccount", fields: [accountId], references: [id])
+
+  @@map("credit_card_items")
+  @@index([creditCardId])
+  @@index([accountId])
+  @@unique([creditCardId, accountId])
 }
 
